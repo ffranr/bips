@@ -1,0 +1,186 @@
+<pre>
+  BIP: TBD
+  Layer: Applications
+  Title: A Descriptor for Unspendable Scripts
+  Author: ffranr <ffranr@proton.me>
+  Comments-Summary: No comments yet.
+  Comments-URI: https://github.com/bitcoin/bips/wiki/Comments:BIP-TBD
+  Status: Draft
+  Type: Standards Track
+  Created: 2025-02-09
+  License: BSD-2-Clause
+</pre>
+
+== Abstract ==
+This BIP introduces the <tt>unspendable</tt> descriptor, standardizing the
+representation of unspendable Bitcoin scripts that not only prevent spending but
+also commit to arbitrary data using the <tt>OP_RETURN</tt> opcode. This
+descriptor enhances clarity and interoperability among Bitcoin applications
+handling such outputs.
+
+== Copyright ==
+This BIP is licensed under the BSD 2-clause license.
+
+== Motivation ==
+The ability to create an unspendable script that commits to arbitrary data is
+already possible using <tt>OP_RETURN</tt> and other mechanisms. However, there
+is no standardized descriptor to specifically represent these unspendable
+scripts, making implementations prone to errors and security risks. Introducing
+the <tt>unspendable</tt> descriptor provides a clear and consistent method for
+hardware wallets and other tools to handle and interpret these scripts,
+promoting better interoperability and reducing ambiguity.
+
+== Specification ==
+
+=== Unspendable Script Without Data ===
+If no data is specified, the <tt>unspendable()</tt> descriptor produces an
+<tt>OP_RETURN</tt> script with no additional data:
+
+<pre>
+unspendable()
+</pre>
+
+This results in the following script:
+
+<pre>
+OP_RETURN
+</pre>
+
+This ensures a provably unspendable output without committing to any specific
+data.
+
+=== Unspendable Script With Data ===
+If arbitrary data is provided, the <tt>unspendable(DATA)</tt> descriptor
+produces an <tt>OP_RETURN</tt> script followed by the specified data:
+
+<pre>
+unspendable(DATA)
+</pre>
+
+Where <tt>DATA</tt> is a hex-encoded byte sequence. This results in the
+following script:
+
+<pre>
+OP_RETURN <DATA>
+</pre>
+
+=== Semantics ===
+The <tt>unspendable</tt> descriptor represents a complete script expression that
+consists solely of an <tt>OP_RETURN</tt> opcode. If <tt>DATA</tt> is provided,
+it follows the <tt>OP_RETURN</tt> opcode, ensuring both unspendability and a
+verifiable commitment to the data. If no <tt>DATA</tt> is provided, the script
+consists of a bare <tt>OP_RETURN</tt> opcode. It must constitute the entire
+script or, when used in Taproot, an independent script leaf. This results in a
+provably unspendable script, as per Bitcoin's protocol rules.
+
+Example:
+
+For an <tt>unspendable</tt> descriptor with <tt>DATA</tt> set to the ASCII
+string "Hello, Bitcoin!" (hex-encoded as
+<tt>48656c6c6f2c20426974636f696e21</tt>), the descriptor and resulting script
+are:
+
+* Descriptor:
+<pre>
+unspendable(48656c6c6f2c20426974636f696e21)
+</pre>
+
+* Resulting Script:
+<pre>
+OP_RETURN 48656c6c6f2c20426974636f696e21
+</pre>
+
+=== Integration with Taproot's <tt>tr()</tt> Descriptor ===
+The <tt>unspendable</tt> descriptor can also be included as a stand-alone
+Taproot script leaf, ensuring that it remains isolated as an independent script
+and does not interact with other script logic. Additionally, it can coexist with
+other spendable script leaves within a Taproot Merkle tree.
+
+==== Descriptor Syntax ====
+An example of a Taproot descriptor with a single script leaf that is
+unspendable:
+
+<pre>
+tr(KEY, unspendable(DATA))
+</pre>
+
+Where:
+
+* <tt>KEY</tt> is the internal key used for key-path spending.
+* <tt>unspendable(DATA)</tt> is an unspendable script leaf in the Taproot Merkle tree.
+
+In this construction, the default spending path remains via the internal key
+(<tt>KEY</tt>). However, the Taproot script tree contains an explicitly
+unspendable script.
+
+An example of a Taproot descriptor with multiple script leaves, only one of
+which is unspendable:
+
+<pre>
+tr(KEY, {pk(KEY2), unspendable(DATA)})
+</pre>
+
+Where:
+
+* <tt>KEY</tt> is the internal key used for key-path spending.
+* <tt>pk(KEY2)</tt> is a script leaf that allows spending with <tt>KEY2</tt>.
+* <tt>unspendable(DATA)</tt> is an unspendable script leaf in the Taproot Merkle tree.
+
+In this construction, the default spending path remains via the internal key
+(<tt>KEY</tt>). However, the Taproot script tree contains multiple script
+leaves, including an explicitly unspendable spend path. This ensures that even
+if the script path is revealed, it does not introduce unintended spending
+conditions. Other script leaves, such as <tt>pk(KEY2)</tt>, remain fully
+functional and spendable.
+
+== Rationale ==
+The <tt>unspendable</tt> descriptor abstracts the technical details of creating
+unspendable <tt>OP_RETURN</tt> scripts, providing a clear and user-friendly
+method to define scripts that both prevent spending and serve as a commitment to
+arbitrary data. This standardization facilitates consistent handling across
+various Bitcoin applications and enhances the clarity of intent when embedding
+data in the blockchain.
+
+There are many scenarios where embedding arbitrary data in the blockchain,
+independent of spending conditions, is valuable. For instance, in Client-Side
+Verification protocols, users rely on on-chain commitments to verify the
+integrity of off-chain data. The script opcodes that enable these use cases
+already exist; the <tt>unspendable(DATA)</tt> descriptor simply standardizes and
+formalizes a practice that is already in use. By doing so, it guarantees a
+consistent, secure, and reliable method for embedding data in cryptographic
+proofs.
+
+=== Why Existing Methods Are Insufficient ===
+Existing approaches to defining unspendable outputs, such as using the
+<tt>raw(SCRIPT)</tt> descriptor, are suboptimal. The <tt>raw</tt> descriptor
+does not enforce spendability constraints, requiring hardware wallets and other
+signing tools to manually inspect the script for an <tt>OP_RETURN</tt> opcode.
+This adds complexity and increases the risk of misclassification.
+
+In contrast, the <tt>unspendable</tt> descriptor explicitly indicates that a
+script cannot be spent, simplifying transaction auditing and reducing developer
+burden. It is also simpler and less risky for hardware wallets to support, since
+it is guaranteed to be unspendable—a clear advantage over the broadly flexible
+<tt>raw</tt> descriptor.
+
+Moreover, relying on the <tt>unspendable</tt> descriptor discourages developers
+from crafting custom unspendable scripts, which are prone to errors. A malformed
+script could inadvertently resemble a valid spendable script, potentially
+allowing trivial spending. By design, <tt>unspendable</tt> ensures the script
+remains provably unspendable, regardless of any committed data.
+
+== Compatibility ==
+This proposal is fully compatible with existing Bitcoin protocols and does not
+introduce any changes to transaction validation rules. It solely provides a
+standardized descriptor for constructing unspendable scripts using existing
+script capabilities.
+
+== Reference Implementation ==
+A reference implementation of the <tt>unspendable</tt> descriptor will be
+provided as a pull request to the
+[https://github.com/bitcoin/bitcoin Bitcoin Core] repository, demonstrating its
+integration and usage within the wallet and transaction creation processes.
+
+== Acknowledgements ==
+Special thanks to the authors of BIP 380 and BIP 387 for their foundational
+work on descriptors, which inspired this proposal.
